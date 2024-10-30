@@ -60,6 +60,9 @@ OPCODE_TABLE = {
 	"WD": "DC",
 }
 
+PROGRAM_COUNTER = 0
+BASE_REGISTER = 0
+
 def bin_to_hex(value):
 	decimal = int(value, 2)
 	hex_value = hex(decimal)[2:]
@@ -72,3 +75,36 @@ def hex_to_bin(value):
 	padded_binary = binary.zfill(len(value) * 4)
 	return padded_binary
 
+def first_pass():
+	# iterate through
+	pass
+
+def second_pass():
+	pass
+
+def get_addressing_mode(instruction):
+	nixbpe = ["0", "0", "0", "0", "0", "0"]
+	if '+' in instruction:
+		# format 4 instruction
+		nixbpe[5] = "1"
+
+	if '#' in instruction:
+		# immediate addressing
+		nixbpe[1] = "1"
+	elif '@' in instruction:
+		# indirect addressing
+		nixbpe[0] = "1"
+	else:
+		# simple addressing
+		nixbpe[0] = "1"
+		nixbpe[1] = "1"
+
+	# next i need to figure out how to get b/p
+	# for that i need to program a (PC) and a (B)
+	# i also need to do a first pass to make a symtab
+		# this will generate location values for all symbols so that (TA) is not empty
+	mode = ''.join(nixbpe)
+	print(mode)
+
+print(hex_to_bin(OPCODE_TABLE["SVC"]))
+get_addressing_mode("+JSUB	#WRECC")
