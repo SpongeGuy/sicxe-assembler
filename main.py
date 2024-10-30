@@ -1,3 +1,5 @@
+import re
+
 OPCODE_TABLE = {
 	"ADD": "18",
 	"ADDF": "58",
@@ -97,19 +99,23 @@ def get_addressing_mode(instruction):
 	nixbpe = ["0", "0", "0", "0", "0", "0"]
 	if '+' in instruction:
 		# format 4 instruction
-		nixbpe[5] = "1"
+		nixbpe[5] = '1'
 
-	if '#' in instruction:
+	if re.search(r'#', instruction):
 		# immediate addressing
-		nixbpe[1] = "1"
-	elif '@' in instruction:
+		nixbpe[1] = '1'
+	elif re.search(r'@', instruction):
 		# indirect addressing
-		nixbpe[0] = "1"
+		nixbpe[0] = '1'
 	else:
 		# simple addressing
-		nixbpe[0] = "1"
-		nixbpe[1] = "1"
-
+		nixbpe[0] = '1'
+		nixbpe[1] = '1'
+	
+	if re.search(r',\ ?X', instruction):
+		# indexed addressing
+		nixbpe[2] = '1'
+	
 	# next i need to figure out how to get b/p
 	# for that i need to program a (PC) and a (B)
 	# i also need to do a first pass to make a symtab
@@ -118,5 +124,5 @@ def get_addressing_mode(instruction):
 	print(mode)
 
 print(hex_to_bin(OPCODE_TABLE["SVC"]))
-get_addressing_mode("+JSUB	#WRECC")
-first_pass()
+get_addressing_mode("JSUB	@WRECC")
+#first_pass()
