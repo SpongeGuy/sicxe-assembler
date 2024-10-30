@@ -76,8 +76,19 @@ def hex_to_bin(value):
 	return padded_binary
 
 def first_pass():
-	# iterate through
-	pass
+	path = "samples/functions.txt"
+	# iterate through file
+	try:
+		with open(path, 'r') as file:
+			for line in file:
+				statement = line.split('\t')
+				print(statement)
+				# column 0 is symbol, column 1 is instruction, column 2 is operand, column 3 is comment
+	except FileNotFoundError:
+		print(f"File not found: {path}")
+	except Exception as e:
+		print(f"An error occurred: {e}")
+
 
 def second_pass():
 	pass
@@ -108,3 +119,4 @@ def get_addressing_mode(instruction):
 
 print(hex_to_bin(OPCODE_TABLE["SVC"]))
 get_addressing_mode("+JSUB	#WRECC")
+first_pass()
