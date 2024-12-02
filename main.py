@@ -62,6 +62,13 @@ OPCODE_TABLE = {
 	"WD": [0xDC],
 }
 
+DIRECTIVES = {
+	"BYTE",
+	"WORD",
+	"RESW",
+	"RESB",
+}
+
 SYMBOL_TABLE = []
 
 PROGRAM_COUNTER = 0x0000
@@ -80,15 +87,23 @@ def hex_to_bin(value):
 	return padded_binary
 
 # take a parsed_instruction (no special characters) and returns the next pc variable based on the size of instruction
-def get_next_PC(parsed_instruction):
+def get_next_PC(instruction):
 	global PROGRAM_COUNTER
-	c = PROGRAM_COUNTER
-	if parsed_instruction in OPCODE_TABLE:
-		if '+' in parsed_instruction:
-			c += 0x4
-		else:
-			c += 0x3
-	return c
+	try:
+		parsed_instruction = parse_instruction(instruction)
+		c = PROGRAM_COUNTER
+		#print("ughhhh", parsed_instruction)
+		if parsed_instruction in OPCODE_TABLE or parsed_instruction in DIRECTIVES:
+			#print("yes")
+			if '+' in instruction:
+				c += 0x4
+				#print("4")
+			else:
+				c += 0x3
+				#print("3")
+		return c
+	except Exception as e:
+		print(f"An error occurred while getting next PC: {e}")
 
 # returns a stripped string including only capital letters (input whole statement array)
 def parse_statement_for_instruction(statement):
@@ -102,8 +117,11 @@ def parse_statement_for_instruction(statement):
 
 # returns a stripped string including only capital letters (input just instruction ('statement[1]' sometimes))
 def parse_instruction(instruction):
-	match = re.search(r'[A-Z]+', instruction)
-	return match.group()
+	try:
+		match = re.search(r'[A-Z]+', instruction)
+		return match.group()
+	except Exception as e:
+		print(f"Error while parsing instruction: {e}")
 
 def first_pass():
 	path = "samples/functions.txt"
@@ -114,27 +132,30 @@ def first_pass():
 		with open(path, 'r') as file:
 			for line in file:
 				statement = line.split('\t')
-				print(statement)
 				# column 0 is symbol, column 1 is instruction, column 2 is operand, column 3 is comment
 				# fill out SYMBOL_TABLE
 
 				# check if instruction is in opcode table, if it is, increment program counter
 				# grab any labels & program counter and add to symbol table
-				parsed_instruction = parse_statement_for_instruction(statement)
+				#parsed_instruction = parse_statement_for_instruction(statement)
+				print(statement, hex(PROGRAM_COUNTER))
 
 				# if instruction in opcode table (count for format 3/4 instructions)
 				# eventually i might have to add support for format 1/2 instructions too idk
-				if parsed_instruction:
-					if statement[0] != '':
-						SYMBOL_TABLE.append([hex(PROGRAM_COUNTER), statement[0]])
-
-				PROGRAM_COUNTER = get_next_PC(parsed_instruction)
+				
+				if statement[0] != '':
+					SYMBOL_TABLE.append([hex(PROGRAM_COUNTER), statement[0]])
+				
+				if len(statement) >= 2 and statement[1]:
+					PROGRAM_COUNTER = get_next_PC(statement[1])
+				
+				
 		print(SYMBOL_TABLE)
 
 	except FileNotFoundError:
 		print(f"File not found: {path}")
 	except Exception as e:
-		print(f"An error occurred: {e}")
+		print(f"An error occurred while first passing: {e}")
 
 
 
@@ -149,7 +170,9 @@ def second_pass():
 				statement = line.split('\t')
 				print(statement)
 				get_addressing_mode(statement)
-				PROGRAM_COUNTER = get_next_PC(parse_statement_for_instruction(statement))
+				if len(statement) >= 2 and statement[1]:
+					PROGRAM_COUNTER = get_next_PC(statement[1])
+				
 		print(SYMBOL_TABLE)
 
 	except FileNotFoundError:
@@ -158,49 +181,76 @@ def second_pass():
 		print(f"An error occurred: {e}")
 	pass
 
-def get_addressing_mode(statement):
-	if 1 not in range(len(statement)) or SYMBOL_TABLE == {}:
-		return None
-	instruction = statement[1]
-	nixbpe = [0, 0, 0, 0, 0, 0]
-	if re.search(r'\+', instruction):
-		# format 4 instruction
-		nixbpe[5] = 1
+def parse_operand(operand):
+	try:
+		match = re.search(r'[A-Z0-9]+', operand)
+		print(f"match: {match.group()}")
+		return match.group()
+	except Exception as e:
+		print(f"Error while parsing operand: {e}")
 
-	if re.search(r'#', instruction):
-		# immediate addressing
-		nixbpe[1] = 1
-	elif re.search(r'@', instruction):
-		# indirect addressing
-		nixbpe[0] = 1
-	else:
-		# simple addressing
-		nixbpe[0] = 1
-		nixbpe[1] = 1
-	
-	if re.search(r',\ ?X', instruction):
-		# indexed addressing
-		nixbpe[2] = 1
-	
+def get_addressing_mode(statement):
+	nixbpe = [0, 0, 0, 0, 0, 0]
+	instruction = None
+	operand = None
+	try:
+		if 2 not in range(len(statement)) or SYMBOL_TABLE == {}:
+			return None
+		instruction = statement[1]
+		operand = statement[2]
+		
+		if re.search(r'\+', instruction):
+			# format 4 instruction
+			nixbpe[5] = 1
+
+		if re.search(r'#', operand):
+			# immediate addressing
+			nixbpe[1] = 1
+		elif re.search(r'@', operand):
+			# indirect addressing
+			nixbpe[0] = 1
+		else:
+			# simple addressing
+			nixbpe[0] = 1
+			nixbpe[1] = 1
+		
+		if re.search(r',\ ?X', operand):
+			# indexed addressing
+			nixbpe[2] = 1
+	except Exception as e:
+		print(f"Error occurred finding pre-nixbpe: {e}")
 	# next i need to figure out how to get b/p
 	# for that i need to program a (PC) and a (B)
 	# i also need to do a first pass to make a symtab
 		# this will generate location values for all symbols so that (TA) is not empty
+
+
 	operand = None
-	if 2 not in range(len(statement)):
+	if len(statement) >= 2 and statement[2]:
+		operand = parse_operand(statement[2])
+	else:
 		return None
-	operand = statement[2]
 	print(f"operand: {operand}")
+	print(f"pre-nixbpe: {nixbpe}")
 
 	TA = 0x0
 	for entry in SYMBOL_TABLE:
-		if statement[2] == entry[1]:
+		#print(f"fucker shiter: {operand}, {entry[1]}")
+		if operand == entry[1]:
 			TA = entry[0]
+			print(f"fuck shit: {entry[0]}")
 
 	disp = TA
 
+	# handle direct addressing
+	if TA == 0 and nixbpe[1] == 1 and nixbpe[0] == 0:
+		print("immediate")
+		disp = int(operand)
+
 	# handle pc-relative, change this later bc is stupid af
 	if not (nixbpe[5] == 1 or nixbpe[2] == 1) and TA != 0:
+		print("pc-relative")
+		nixbpe[4] = 1 #pc-relative
 		PC = get_next_PC(instruction)
 
 		# convert ta and pc to int to subtract them
@@ -214,39 +264,38 @@ def get_addressing_mode(statement):
 
 		print(f"TA, PC: {hex(TA)}, {hex(PC)}")
 	
-	if disp != 0:
-		try:
-			nixbpe[4] = 1 #pc-relative
+	try:
+		
 
-			print(f"disp: {hex(disp)}")
-			# calculate object code here
-			ni = [nixbpe[0], nixbpe[1]]
-			opcode = OPCODE_TABLE[parse_instruction(instruction)][0]
-			ni = int(''.join(map(str, ni)), 2)
-			# print(bin(opcode))
-			# print(bin(ni))
-			# print(f"{type(opcode)}, {type(ni)}") 
-			opcode = opcode + ni
-			# print(bin(opcode))
-			str_opcode = str(bin(opcode)).replace("0b", "")
-			str_opcode = str_opcode.zfill((len(str_opcode) + 3) // 4 * 4)
-			# print(f"opcode: {str_opcode}")
+		print(f"disp: {hex(disp)}")
+		# calculate object code here
+		ni = [nixbpe[0], nixbpe[1]]
+		opcode = OPCODE_TABLE[parse_instruction(instruction)][0]
+		ni = int(''.join(map(str, ni)), 2)
+		# print(bin(opcode))
+		# print(bin(ni))
+		# print(f"{type(opcode)}, {type(ni)}") 
+		opcode = opcode + ni
+		# print(bin(opcode))
+		str_opcode = str(bin(opcode)).replace("0b", "")
+		str_opcode = str_opcode.zfill((len(str_opcode) + 3) // 4 * 4)
+		#print(f"opcode: {str_opcode}")
 
 
-			xbpe = [nixbpe[2], nixbpe[3], nixbpe[4], nixbpe[5]]
-			xbpe = ''.join(map(str, xbpe))
-			# print(f"xbpe: {xbpe}")
+		xbpe = [nixbpe[2], nixbpe[3], nixbpe[4], nixbpe[5]]
+		xbpe = ''.join(map(str, xbpe))
+		#print(f"xbpe: {xbpe}")
 
-			if disp > 0:
-				str_disp = str(bin(disp)).replace("0b", "")
-				str_disp = str_disp.zfill(12)
-				# print(f"disp: {str_disp}")
+		if disp >= 0:
+			str_disp = str(bin(disp)).replace("0b", "")
+			str_disp = str_disp.zfill(12)
+			# print(f"disp: {str_disp}")
 
-				obj_code = str_opcode + xbpe + str_disp
-				print(hex(int(obj_code, 2)))
+			obj_code = str_opcode + xbpe + str_disp
+			print(hex(int(obj_code, 2)))
 
-		except Exception as e:
-			print(f"An error occurred while calculating object code: {e}")
+	except Exception as e:
+		print(f"An error occurred while calculating object code: {e}")
 
 	#mode = ''.join(nixbpe)
 	#print(f"nixbpe: {mode}")
