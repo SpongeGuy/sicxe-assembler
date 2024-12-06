@@ -189,6 +189,9 @@ def parse_operand(operand):
 	except Exception as e:
 		print(f"Error while parsing operand: {e}")
 
+def wrap_4bit_hex(negative_hex):
+    return str(hex(0xffff + (negative_hex + 0x1)))
+
 def get_addressing_mode(statement):
 	nixbpe = [0, 0, 0, 0, 0, 0]
 	instruction = None
@@ -265,8 +268,6 @@ def get_addressing_mode(statement):
 		print(f"TA, PC: {hex(TA)}, {hex(PC)}")
 	
 	try:
-		
-
 		print(f"disp: {hex(disp)}")
 		# calculate object code here
 		ni = [nixbpe[0], nixbpe[1]]
@@ -279,20 +280,26 @@ def get_addressing_mode(statement):
 		# print(bin(opcode))
 		str_opcode = str(bin(opcode)).replace("0b", "")
 		str_opcode = str_opcode.zfill((len(str_opcode) + 3) // 4 * 4)
-		#print(f"opcode: {str_opcode}")
+		print(f"opcode: {str_opcode}")
 
 
 		xbpe = [nixbpe[2], nixbpe[3], nixbpe[4], nixbpe[5]]
 		xbpe = ''.join(map(str, xbpe))
-		#print(f"xbpe: {xbpe}")
+		print(f"xbpe: {xbpe}")
 
 		if disp >= 0:
 			str_disp = str(bin(disp)).replace("0b", "")
 			str_disp = str_disp.zfill(12)
 			# print(f"disp: {str_disp}")
+		elif disp < 0:
+ 	  		str_disp = wrap_4bit_hex(disp)[2:]
+ 	  		str_disp = str(bin(int(str_disp, 16)))[3:]
+ 	  		print(f"disp: {str_disp}")
+ 	  		
 
-			obj_code = str_opcode + xbpe + str_disp
-			print(hex(int(obj_code, 2)))
+		obj_code = str_opcode + xbpe + str_disp
+		print(hex(int(obj_code, 2)))
+
 
 	except Exception as e:
 		print(f"An error occurred while calculating object code: {e}")
@@ -310,3 +317,7 @@ print()
 
 first_pass()
 second_pass()
+
+print(wrap_4bit_hex(-0x14))
+
+print(hex(int("ffe", 16)))
