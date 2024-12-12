@@ -1,65 +1,77 @@
 import re
 
 OPCODE_TABLE = {
-	"ADD": [0x18],
-	"ADDF": [0x58],
-	"ADDR": [0x90],
-	"AND": [0x40],
-	"CLEAR": [0xB4],
-	"COMP": [0x28],
-	"COMPF": [0x88],
-	"COMPR": [0xA0],
-	"DIV": [0x24],
-	"DIVF": [0x64],
-	"DIVR": [0x9C],
-	"FIX": [0xC4],
-	"FLOAT": [0xC0],
-	"HIO": [0xF4],
-	"J": [0x3C],
-	"JEQ": [0x30],
-	"JGT": [0x34],
-	"JLT": [0x38],
-	"JSUB": [0x48],
-	"LDA": [0x00],
-	"LDB": [0x68],
-	"LDCH": [0x50],
-	"LDF": [0x70],
-	"LDL": [0x08],
-	"LDS": [0x6C],
-	"LDT": [0x74],
-	"LDX": [0x04],
-	"LPS": [0xD0],
-	"MUL": [0x20],
-	"MULF": [0x60],
-	"MULR": [0x98],
-	"NORM": [0xC8],
-	"OR": [0x44],
-	"RD": [0xD8],
-	"RMO": [0xAC],
-	"RSUB": [0x4C],
-	"SHIFTL": [0xA4],
-	"SHIFTR": [0xA8],
-	"SIO": [0xF0],
-	"SSK": [0xEC],
-	"STA": [0x0C],
-	"STB": [0x78],
-	"STCH": [0x54],
-	"STF": [0x80],
-	"STI": [0xD4],
-	"STL": [0x14],
-	"STS": [0x7C],
-	"STSW": [0xE8],
-	"STT": [0x84],
-	"STX": [0x10],
-	"SUB": [0x1C],
-	"SUBF": [0x5C],
-	"SUBR": [0x94],
-	"SVC": [0xB0],
-	"TD": [0xE0],
-	"TIO": [0xF8],
-	"TIX": [0x2C],
-	"TIXR": [0xB8],
-	"WD": [0xDC],
+	"ADD": [0x18, 3],
+	"ADDF": [0x58, 3],
+	"ADDR": [0x90, 2],
+	"AND": [0x40, 3],
+	"CLEAR": [0xB4, 2],
+	"COMP": [0x28, 3],
+	"COMPF": [0x88, 3],
+	"COMPR": [0xA0, 2],
+	"DIV": [0x24, 3],
+	"DIVF": [0x64, 3],
+	"DIVR": [0x9C, 2],
+	"FIX": [0xC4, 1],
+	"FLOAT": [0xC0, 1],
+	"HIO": [0xF4, 1],
+	"J": [0x3C, 3],
+	"JEQ": [0x30, 3],
+	"JGT": [0x34, 3],
+	"JLT": [0x38, 3],
+	"JSUB": [0x48, 3],
+	"LDA": [0x00, 3],
+	"LDB": [0x68, 3],
+	"LDCH": [0x50, 3],
+	"LDF": [0x70, 3],
+	"LDL": [0x08, 3],
+	"LDS": [0x6C, 3],
+	"LDT": [0x74, 3],
+	"LDX": [0x04, 3],
+	"LPS": [0xD0, 3],
+	"MUL": [0x20, 3],
+	"MULF": [0x60, 3],
+	"MULR": [0x98, 2],
+	"NORM": [0xC8, 1],
+	"OR": [0x44, 3],
+	"RD": [0xD8, 3],
+	"RMO": [0xAC, 2],
+	"RSUB": [0x4C, 3],
+	"SHIFTL": [0xA4, 2],
+	"SHIFTR": [0xA8, 2],
+	"SIO": [0xF0, 1],
+	"SSK": [0xEC, 3],
+	"STA": [0x0C, 3],
+	"STB": [0x78, 3],
+	"STCH": [0x54, 3],
+	"STF": [0x80, 3],
+	"STI": [0xD4, 3],
+	"STL": [0x14, 3],
+	"STS": [0x7C, 3],
+	"STSW": [0xE8, 3],
+	"STT": [0x84, 3],
+	"STX": [0x10, 3],
+	"SUB": [0x1C, 3],
+	"SUBF": [0x5C, 3],
+	"SUBR": [0x94, 2],
+	"SVC": [0xB0, 2],
+	"TD": [0xE0, 3],
+	"TIO": [0xF8, 1],
+	"TIX": [0x2C, 3],
+	"TIXR": [0xB8, 2],
+	"WD": [0xDC, 3],
+}
+
+REG_VALUES = {
+	"A": 0,
+	"X": 1,
+	"L": 2,
+	"B": 3,
+	"S": 4,
+	"T": 5,
+	"F": 6,
+	"PC": 8,
+	"SW": 9,
 }
 
 DIRECTIVES = {
@@ -98,9 +110,11 @@ def get_next_PC(instruction):
 			if '+' in instruction:
 				c += 0x4
 				#print("4")
-			else:
-				c += 0x3
+			elif parsed_instruction in OPCODE_TABLE:
+				c += OPCODE_TABLE[parsed_instruction][1]
 				#print("3")
+			else:
+				c += 3
 		return c
 	except Exception as e:
 		print(f"An error occurred while getting next PC: {e}")
@@ -184,7 +198,6 @@ def second_pass():
 def parse_operand(operand):
 	try:
 		match = re.search(r'[A-Z0-9]+', operand)
-		print(f"match: {match.group()}")
 		return match.group()
 	except Exception as e:
 		print(f"Error while parsing operand: {e}")
@@ -201,6 +214,7 @@ def get_addressing_mode(statement):
 			return None
 		instruction = statement[1]
 		operand = statement[2]
+			
 		
 		if re.search(r'\+', instruction):
 			# format 4 instruction
@@ -225,90 +239,165 @@ def get_addressing_mode(statement):
 	# next i need to figure out how to get b/p
 	# for that i need to program a (PC) and a (B)
 	# i also need to do a first pass to make a symtab
-		# this will generate location values for all symbols so that (TA) is not empty
+	# this will generate location values for all symbols so that (TA) is not empty
 
+	instruction = parse_instruction(instruction)
 
+	form = 0
+	if instruction in OPCODE_TABLE:
+		form = OPCODE_TABLE[instruction][1]
+
+	print(f'format: {form}')
 	operand = None
-	if len(statement) >= 2 and statement[2]:
-		operand = parse_operand(statement[2])
+	if len(statement) >= 2:
+		if statement[2] == '': # no operand
+			operand = ''
+		elif instruction in OPCODE_TABLE and form == 2 and ',' in statement[2]: # format 2 instruction (not CLEAR) operand
+			operand = re.findall(r'(\D+),(\D+)', statement[2])
+		else: # format 3/4 instruction operand
+			operand = parse_operand(statement[2])
 	else:
 		return None
+	print(f"instruction: {instruction}")
 	print(f"operand: {operand}")
 	print(f"pre-nixbpe: {nixbpe}")
 
-	TA = 0x0
-	for entry in SYMBOL_TABLE:
-		#print(f"fucker shiter: {operand}, {entry[1]}")
-		if operand == entry[1]:
-			TA = entry[0]
-			print(f"fuck shit: {entry[0]}")
+	# first pick which type of operand it is (c or m)
+	# c means a constant between 0 and 4095
+	# m means a memory address or constant value larger than 4095
 
-	disp = TA
-
-	# handle direct addressing
-	if TA == 0 and nixbpe[1] == 1 and nixbpe[0] == 0:
-		print("immediate")
-		disp = int(operand)
-
-	# handle pc-relative, change this later bc is stupid af
-	if not (nixbpe[5] == 1 or nixbpe[2] == 1) and TA != 0:
-		print("pc-relative")
-		nixbpe[4] = 1 #pc-relative
-		PC = get_next_PC(instruction)
-
-		# convert ta and pc to int to subtract them
-		if isinstance(TA, str):
-			TA = int(TA, 16)
-		if isinstance(PC, str):
-			PC = int(PC, 16)
-
-		disp = hex(TA - PC)
-		disp = int(disp, 16)
-
-		print(f"TA, PC: {hex(TA)}, {hex(PC)}")
+	# all values in runtime should be in binary to simplify operations
+	c = 0
+	m = 0
 	
+	op = None
+	if not isinstance(operand, list) and re.search(r'^\d+$', operand): # if operand is numeric
+		if int(operand) > 4095:
+			m = bin(int(operand, 10))[2:]
+		else:
+			c = bin(int(operand, 10))[2:]
+	else:
+		# get address of operand
+		for entry in SYMBOL_TABLE:
+			if operand == entry[1]:
+				m = bin(int(entry[0][2:], 16))[2:].zfill(8)
+
+	# get obj code as a string of binary
 	try:
-		print(f"disp: {hex(disp)}")
-		# calculate object code here
-		ni = [nixbpe[0], nixbpe[1]]
-		opcode = OPCODE_TABLE[parse_instruction(instruction)][0]
-		ni = int(''.join(map(str, ni)), 2)
-		# print(bin(opcode))
-		# print(bin(ni))
-		# print(f"{type(opcode)}, {type(ni)}") 
-		opcode = opcode + ni
-		# print(bin(opcode))
-		str_opcode = str(bin(opcode)).replace("0b", "")
-		str_opcode = str_opcode.zfill((len(str_opcode) + 3) // 4 * 4)
-		print(f"opcode: {str_opcode}")
-
-
-		xbpe = [nixbpe[2], nixbpe[3], nixbpe[4], nixbpe[5]]
-		xbpe = ''.join(map(str, xbpe))
-		print(f"xbpe: {xbpe}")
-
-		if disp >= 0:
-			str_disp = str(bin(disp)).replace("0b", "")
-			str_disp = str_disp.zfill(12)
-			# print(f"disp: {str_disp}")
-		elif disp < 0:
- 	  		str_disp = wrap_4bit_hex(disp)[2:]
- 	  		str_disp = str(bin(int(str_disp, 16)))[3:]
- 	  		print(f"disp: {str_disp}")
- 	  		
-
-		obj_code = str_opcode + xbpe + str_disp
-		print(hex(int(obj_code, 2)))
-
+		for entry in OPCODE_TABLE:
+			if instruction == entry:
+				op = bin(OPCODE_TABLE[entry][0])[2:]
+				op = op.zfill(8)
+		if op == 0:
+			raise Exception("no entry in opcode table for instruction")
 
 	except Exception as e:
-		print(f"An error occurred while calculating object code: {e}")
+		print(f"error getting opcode: {e}")
 
-	#mode = ''.join(nixbpe)
-	#print(f"nixbpe: {mode}")
+
+	print(f"opcode: {op}")
+	print(f"c: {c}")
+	print(f"m: {m}")
+
+	# fix up nixbpe and then get it as a string of binary
+	# for base relative, 0 <= disp <= 4095
+	# for pc relative, -2048 <= disp <= 2047
+	disp = None
+
+	obj_code = None
+
+	if form == 2:
+		try:
+			# in format 2, registers are 1-byte values represented in object code
+			r1 = ""
+			r2 = ""
+			
+			if isinstance(operand, list):
+				print(REG_VALUES[operand[0][0]])
+				r1 = bin(REG_VALUES[operand[0][0]])[2:].zfill(4)
+				r2 = bin(REG_VALUES[operand[0][1]])[2:].zfill(4)
+				print(r1, r2)
+			else:
+				r1 = bin(REG_VALUES[operand[0][0]])[2:].zfill(4)
+				r2 = "0000"
+
+			obj_code = hex(int(op + r1 + r2, 2))
+		except Exception as e:
+			print(f"error calculating object code: {e}")
+
+	if form == 3:
+		try:
+			if m:
+				# assume pc relative unless disp does not follow rules
+				if nixbpe[5] == 0: # if no extended format, then relative addressing.
+					nixbpe[4] = 1
+
+			print(f"step2 nixbpe: {nixbpe}")
+
+			# now that nixbpe has been fixed, calculate disp according to nixbpe values
+			# if not x or p (at this point in code), TA is disp/address (operand value)
+			
+			if nixbpe[2] == 0 and nixbpe[4] == 0:
+				print("disp = ta")
+				if m:
+					print('hero')
+					disp = m.zfill(12)
+					print(disp)
+				elif c:
+					disp = c.zfill(12)
+				else:
+					disp = "000000000000"
+
+			# if extended, then fill up the disp to make a 20-length address
+			if nixbpe[5] == 1:
+				print("extended")
+				disp = disp.zfill(20)
+
+			# now handle all relative addressing
+
+			# pc-relative, calculate disp here
+			if nixbpe[4] == 1:
+				print("assuming pc-relative")
+				PC = get_next_PC(instruction)
+				print(int(m, 2) - PC)
+				disp = int(m, 2) - PC
+
+				if disp < -2048:
+					raise Exception("ERROR: displacement value cannot be less than 2048")
+				if disp > 2047:
+					raise Exception("base relative handle here")
+
+				if disp < 0:
+					disp = bin(int(wrap_4bit_hex(disp)[2:], 16))[2:].zfill(16)
+					print(disp, type(disp))
+				else:
+					disp = bin(disp)[2:].zfill(16)
+
+				disp = disp[4:]
+
+			if nixbpe[2] == 1:
+				raise Exception("i dont know how to do index addressing yet")
+		except Exception as e:
+			print(f"error calculating object code: {e}")
+
+		print(f"disp: {disp}")
+
+		str_nixbpe = ""
+		for num in nixbpe:
+			str_nixbpe += str(num)
+
+		print(type(op), type(str_nixbpe), type(disp))
+		if op and str_nixbpe and disp:
+			obj_code = op[:-2] + str_nixbpe + disp
+			obj_code = hex(int(obj_code, 2)).zfill(6)
+
+	print(f"object code: {obj_code}")
+
 	print()
 	print()
-	#return mode
+	return obj_code
+
+
 
 
 print()
@@ -317,7 +406,3 @@ print()
 
 first_pass()
 second_pass()
-
-print(wrap_4bit_hex(-0x14))
-
-print(hex(int("ffe", 16)))
