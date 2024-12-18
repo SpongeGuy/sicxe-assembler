@@ -84,52 +84,56 @@ DIRECTIVES = {
 	"RESW",
 	"RESB",
 	"BASE",
+	"LTORG",
+	"CSECT",
+	"EXTREF",
+	"EXTDEF",
+	"MACRO",
+	"MEND",
 }
 
 SYMBOL_TABLE = []
+CONTROL_SECTION_ID = 0
 
-PROGRAM_COUNTER = 0x0000
+WORKING_LITERAL_TABLE = []
+LITERAL_TABLE = []
+EXTREFS = []
+MACROS = []
 
-REG_A = 0
+LOCCTR = 0x0000
+LOCATION_COUNTERS = [['', 0, 0x0, 0x0, True]] # [name, id, starting_address, length, active_flag]
+ACTIVE_LOCCTR_ID = LOCATION_COUNTERS[0][1]
+
 REG_X = 0
-REG_L = 0
 REG_B = 0
-REG_S = 0
-REG_T = 0
-REG_F = 0
 
 sample = "samples/functions.txt"
 
-def bin_to_hex(value):
-	decimal = int(value, 2)
-	hex_value = hex(decimal)[2:]
-	padded_hex_value = hex_value.zfill(2)
-	return padded_hex_value
+def scrub_newlines(statement):
+	return [s.strip() for s in statement]
 
-def hex_to_bin(value):
-	decimal = int(value, 16)
-	binary = bin(decimal)[2:]
-	padded_binary = binary.zfill(len(value) * 4)
-	return padded_binary
 
-def get_length_of_statement(statement):
+def get_instruction_data_length(instruction_data):
 	directive_lengths = {
 		"RESD": lambda x: 4 * int(x[2]),
 		"RESQ": lambda x: 8 * int(x[2]),
 		"RESW": lambda x: 3 * int(x[2]),
 		"RESB": lambda x: int(x[2]),
-		"BYTE": lambda x: get_byte_instruction_data(x)[1],
+		"BYTE": lambda x: get_literal_code(x[2])[1],
 		"WORD": lambda x: 3,
-		"EQU": lambda x: 0 if operand.startswith('*') else None,
+		"EQU": lambda x: 0,
 		"BASE": lambda x: 0,
 		"NOBASE": lambda x: 0,
+		"LTORG": lambda x: 0,
 	}
 	try:
-		instruction = statement[1]
-		operand = statement[2]
+		if '.' in instruction_data[0]:
+			return 0
+		instruction = instruction_data[1]
+		operand = instruction_data[2]
 		function = directive_lengths.get(instruction)
 		if function:
-			return int(function(statement))
+			return int(function(instruction_data))
 
 		# if not return here, then instruction is an operation
 		if parse_instruction(instruction) in OPCODE_TABLE:
@@ -140,41 +144,33 @@ def get_length_of_statement(statement):
 	except Exception as e:
 		print(f"Could not get length of instruction: {e}")
 
-# take a parsed_instruction (no special characters) and returns the next pc variable based on the size of instruction
-def get_next_PC(statement):
-	global PROGRAM_COUNTER
+
+def get_next_address(instruction_data):
+	# take a parsed_instruction (no special characters) and returns the next memory address variable based on size of instruction
 	try:
-		c = PROGRAM_COUNTER
-		value = get_length_of_statement(statement)
+		c = int(instruction_data[3][2:], 16)
+		value = get_instruction_data_length(instruction_data)
 		if value:
 			c += value
 		return c
 	except Exception as e:
 		print(f"An error occurred while getting next PC: {e}")
 
-# returns a stripped string including only capital letters (input whole statement array)
-def parse_statement_for_instruction(statement):
-	instruction_match = None
-	parsed_instruction = None
-	if 1 in range(len(statement)):
-		instruction_match = re.search(r'[A-Z]+', statement[1])
-	if instruction_match:
-		parsed_instruction = instruction_match.group()
-	return parsed_instruction
 
-# returns a stripped string including only capital letters (input just instruction ('statement[1]' sometimes))
 def parse_instruction(instruction):
+	# returns a stripped string including only capital letters
 	try:
 		match = re.search(r'[A-Z]+', instruction)
 		return match.group()
 	except Exception as e:
 		print(f"Error while parsing instruction: {e}")
 
-def get_byte_instruction_data(statement):
+def get_literal_code(literal):
+	# literal is in form  #'#' or =#'#' 
 	# given the instruction is BYTE, get the length of the instruction and the object code
 	try:
 		value = 0
-		match = re.findall(r"^([CX])'([A-Za-z0-9]+)'$", statement[2])
+		match = re.findall(r"([CX])'([A-Za-z0-9]+)'", literal)
 		if match[0][0] == 'X':
 			# operand is hexadecimal constant
 			value = match[0][1]
@@ -186,39 +182,326 @@ def get_byte_instruction_data(statement):
 		obj_code = "0x" + value
 		return (obj_code, length)
 	except Exception as e:
-		print(f"error getting BYTE instruction data: {e}")
+		print(f"error getting literal code: {e}")
 
-def first_pass():
+def update_symbol_table(instruction_data):
+	# grabs instructions with labels and appends them to symbol table
+	try:
+		flags = []
+		for entry in SYMBOL_TABLE:
+			if instruction_data[0] == entry[1]:
+				flags.append("REPEAT")
+		if instruction_data[0] != '' and '.' not in instruction_data[0]:
+			SYMBOL_TABLE.append((instruction_data[3], instruction_data[0], flags, ACTIVE_LOCCTR_ID, CONTROL_SECTION_ID))
+	except Exception as e:
+		print(f"Could not update SYMTAB: {e}")
+
+def update_literal_table(statement):
+	# reads statement and determines if operand is in literal table
+	# if not, add it to literal table and change operand of statement to match that of the index of literal table entry
+	global LOCCTR
+	try:
+		match_lit = re.findall(r"^=([CX])'([A-Za-z0-9]+)'$", statement[2])
+		match_star = re.findall(r"=(\*)", statement[2])
+		index = len(LITERAL_TABLE)
+		# behave differently if literal references location counter
+		if match_star != []:
+			WORKING_LITERAL_TABLE.insert(0, ['', match_star, index, ''])
+			LITERAL_TABLE.append(['', match_star, index, ''])
+			index = len(LITERAL_TABLE)
+			statement[2] = f'={index - 1}'
+			return
+		if match_lit == []:
+			return None
+
+		# if entry already in working literal table, do not add it again NO DUPLICATES 
+		# (unless literal has already been defined somewhere)
+		for entry in LITERAL_TABLE:
+			if match_lit == entry[1]:
+				statement[2] = f'={index - 1}'
+				return
+		# match is not in literal table
+		WORKING_LITERAL_TABLE.insert(0, ['', match_lit, index, ''])
+		LITERAL_TABLE.append(['', match_lit, index, ''])
+		index = len(LITERAL_TABLE)
+		statement[2] = f'={index - 1}'
+		
+	except Exception as e:
+		print(f"could not update literal table: {e}")
+
+def get_literal_length(literal_match):
+	try:
+		value = 0
+		if literal_match[0] == 'C':
+			value = len(literal_match[1])
+		elif literal_match[0] == 'X':
+			value = int(len(literal_match[1]) / 2)
+		else:
+			raise Exception("literal invalid")
+
+		return value
+	except Exception as e:
+		print(f"could not get literal length: {e}")	
+
+def get_literal_pool(statement):
+	# LTORG OPERATION, inject each literal in the array into the intermediate file
+	# assigns addresses to literal values
+	global LOCCTR
+	global ACTIVE_LOCCTR_ID
+	literals = []
+	while len(WORKING_LITERAL_TABLE) != 0:
+		entry = WORKING_LITERAL_TABLE.pop()
+		for fella in LITERAL_TABLE:
+			if entry[2] == fella[2]:
+				fella[0] = hex(LOCCTR)
+				fella[3] = ACTIVE_LOCCTR_ID
+
+		if entry[1][0] == '*':
+			literals.append(('*', f"={entry[1][0]}", '', hex(LOCCTR), ACTIVE_LOCCTR_ID, CONTROL_SECTION_ID, entry[2]))
+			LOCCTR = LOCCTR + int(len(hex(LOCCTR)[2:]) / 2)
+		else:
+			literals.append(('*', f"={entry[1][0][0]}'{entry[1][0][1]}'", '', hex(LOCCTR), ACTIVE_LOCCTR_ID, CONTROL_SECTION_ID, entry[2]))
+			LOCCTR = LOCCTR + get_literal_length(entry[1][0])
+	return literals
+
+def generate_macro_instruction_data(statement, macro):
+	macro_data = []
+	file = macro[1].splitlines()
+	symbols = re.findall(r'(&\w+)', macro[2])
+	parameters = re.findall(r'(\w+)', statement[2])
+	for x in range(len(symbols)):
+		for line in range(len(file)):
+			file[line] = file[line].replace(symbols[x], parameters[x])
+	for line in file:
+		statement = line.split('\t')
+		macro_data.append(statement)
+
+	return macro_data
+	
+def do_macros():
 	path = sample
-	global PROGRAM_COUNTER
+	try:
+		with open(path, 'r') as file:
+			# define macros
+			capturing = False
+			macros_present = False
+			body = ""
+			name = ""
+			parameters = ""
+			for line in file:
+				if "MEND" in line:
+					macros_present = True
+					break
+
+			if macros_present:
+				for line in file:
+					statement = line.split('\t')
+					
+					if '.' in statement[0] or statement == [''] or statement == ['\n']:
+						continue
+
+					if 'MEND' in statement[1]:
+						capturing = False
+						MACROS.append([name, body, parameters])
+						body = ""
+						name = ""
+						parameters = ""
+					
+					if capturing:
+						body += line
+
+					if 'MACRO' in statement[1]:
+						parameters = statement[2]
+						name = statement[0]
+						capturing = True
+
+		with open(path, 'r') as file:
+			# invoke macros and set up file for assembly
+			finished_file = []
+			if MACROS == []:
+				for line in file:
+					statement = line.split('\t')
+					finished_file.append(statement)
+			else:
+				ignoring = False
+				for line in file:
+					statement = line.split('\t')
+					if statement[1] == 'START':
+						finished_file.append(statement)
+						ignoring = True
+					if statement[1] == 'STL':
+						ignoring = False
+					if not ignoring:
+						# make sure that the line invoking the macro is not part of the finished file
+						metastatement = statement
+						for macro in MACROS:
+							if statement[1] == macro[0]:
+								metastatement = None
+						if metastatement:
+							finished_file.append(statement)
+						for macro in MACROS:
+							if statement[1] == macro[0]:
+								macro_data = generate_macro_instruction_data(statement, macro)
+								if macro_data != []:
+									for x in range(len(macro_data)):
+										if x == 0:
+											macro_data[x][0] = statement[0]
+										finished_file.append(macro_data[x])
+						
+		
+			return finished_file
+
+	except Exception as e:
+		print(f"could not do macro: {e}")
+
+def update_location_counters(statement):
+	global LOCCTR
+	# LOCATION_COUNTERS = [[name, id, starting_address, length, active_flag], ...]
+	counter_present = False
+	for counter in LOCATION_COUNTERS:
+		# if name of counter already present, don't do anything
+		if statement[2] in counter:
+			counter_present = True
+	
+	if counter_present == False:
+		LOCATION_COUNTERS.append([statement[2], len(LOCATION_COUNTERS), 0x0, 0x0, False])
+
+	for counter in LOCATION_COUNTERS:
+		# update current location counter value
+		if counter[4] == True:
+			counter[3] = LOCCTR
+	
+	for counter in LOCATION_COUNTERS:
+		counter[4] = False
+		if statement[2] == counter[0]:
+			counter[4] = True
+			LOCCTR = counter[3]
+
+def first_pass(finished_file):
+	path = sample
+	global LOCCTR
+	global EXTREFS
+	global ACTIVE_LOCCTR_ID
+	global CONTROL_SECTION_ID
+	intermediate_file = []
 	# iterate through file
 	try:
-		PROGRAM_COUNTER = 0x0000
-		with open(path, 'r') as file:
-			for line in file:
-				statement = line.split('\t')
-				# column 0 is symbol, column 1 is instruction, column 2 is operand, column 3 is comment
-				# fill out SYMBOL_TABLE
+		for statement in finished_file:
+			
+			if '.' in statement[0] or statement == [''] or statement == ['\n']:
+				continue
+			# initialize location counter starting address
+			if statement[1] == 'START':
+				program_starting_address = int(statement[2])
+				LOCCTR = program_starting_address
+			# column 0 is symbol, column 1 is instruction, column 2 is operand, column 3 is comment
+			# fill out SYMBOL_TABLE
+			# check if instruction is in opcode table, if it is, increment program counter
+			# grab any labels & program counter and add to symbol table
+			instruction_data = ()
+			print(f"{hex(LOCCTR)}\t {statement}")
 
-				# check if instruction is in opcode table, if it is, increment program counter
-				# grab any labels & program counter and add to symbol table
-				#parsed_instruction = parse_statement_for_instruction(statement)
-				print(statement, hex(PROGRAM_COUNTER))
+			for macro in MACROS:
+				if statement[1] == macro[0]:
+					print("con")
+					generate_macro_instruction_data(statement, macro)
+			statement = scrub_newlines(statement)
+			# detect literals in operand field and add to literal table
+			if statement[1] not in DIRECTIVES:
+				update_literal_table(statement)
 
-				# if instruction in opcode table (count for format 3/4 instructions)
-				# eventually i might have to add support for format 1/2 instructions too idk
-				
-				if statement[0] != '':
-					SYMBOL_TABLE.append([hex(PROGRAM_COUNTER), statement[0]])
 
-				if statement[0] == '.' and re.search(r'^[A-Fa-f0-9]+$', statement[1]):
-					pass
-					#PROGRAM_COUNTER = int(statement[1], 16)
-				elif len(statement) >= 2 and statement[1]:
-					PROGRAM_COUNTER = get_next_PC(statement)
-				
-				
+			# external references
+			if statement[1] == 'EXTREF':
+				match = re.findall(r'(\w+)', statement[2])
+				for entry in match:
+					EXTREFS.append((match, CONTROL_SECTION_ID))
+
+			# control sections
+			if statement[1] == 'CSECT':
+				LOCCTR = 0
+				CONTROL_SECTION_ID += 1
+
+			# program blocks
+			if statement[1] == 'USE':
+				update_location_counters(statement)
+
+
+			active_location_counter_id = None
+			for counter in LOCATION_COUNTERS:
+				if counter[4] == True:
+					ACTIVE_LOCCTR_ID = counter[1]
+
+
+
+			# create refined instruction data (label, operator, operand, location) and add it to intermediate file
+			# EQU statements
+			if statement[1] == 'EQU' and '*' not in statement[2]:
+				match_words = re.findall(r'(\w+)', statement[2])
+				match_operators = re.findall(r'([+-])', statement[2])
+				symbol_addresses = []
+				for entry in SYMBOL_TABLE:
+					for word in match_words:
+						if entry[1] == word:
+							symbol_addresses.insert(0, entry[0])
+				address = int(symbol_addresses[0], 16)
+				for x in range(len(match_operators)):
+					if match_operators[x] == '-':
+						address -= int(symbol_addresses[x+1], 16)
+					elif match_operators[x] == '+':
+						address += int(symbol_addresses[x+1], 16)
+				instruction_data = (statement[0], statement[1], statement[2], hex(address), ACTIVE_LOCCTR_ID, CONTROL_SECTION_ID)
+				intermediate_file.append(instruction_data)
+				update_symbol_table(instruction_data)
+			# all other statements !!! :))))
+			else:
+				operand = ''
+				if len(statement) >= 3:
+					operand = statement[2]
+				instruction_data = (statement[0], statement[1], operand, hex(LOCCTR), ACTIVE_LOCCTR_ID, CONTROL_SECTION_ID)
+				intermediate_file.append(instruction_data)
+				update_symbol_table(instruction_data)
+				if statement[1]:
+					LOCCTR = get_next_address(instruction_data)
+
+			
+			literals = []
+			if statement[1] == 'LTORG' or statement[1] == 'END':
+				literals = get_literal_pool(statement)
+			
+			if literals != []:
+				for entry in literals:
+					intermediate_file.append(entry)
+
+
+		update_location_counters(['', 'USE', '', ''])
+		# update starting addresses of all location counters
+		# LOCATION_COUNTERS = [[name, id, starting_address, length, active_flag], ...]
+
+		total_memory_used = 0
+		for x in range(1, len(LOCATION_COUNTERS)):
+			total_memory_used += LOCATION_COUNTERS[x-1][3]
+			LOCATION_COUNTERS[x][2] = total_memory_used
+
+
+		print()
+		print()
+		print("EXTREFS")
+		print(EXTREFS)
+		print()
+		print("LOCATION_COUNTERS")
+		print(LOCATION_COUNTERS)
+		print()
+		print("SYMBOL_TABLE")
 		print(SYMBOL_TABLE)
+		print()
+		print("LITERAL_TABLE")
+		print(LITERAL_TABLE)
+		print()
+		print()
+
+
+		return intermediate_file
 
 	except FileNotFoundError:
 		print(f"File not found: {path}")
@@ -227,33 +510,29 @@ def first_pass():
 
 
 
-def second_pass():
+def second_pass(intermediate_file):
 	path = sample
-	global PROGRAM_COUNTER
 	# iterate through file
 	try:
-		PROGRAM_COUNTER = 0x0000
-		with open(path, 'r') as file:
-			for line in file:
-				statement = line.split('\t')
-				print(statement)
+		object_code = []
+		for statement in intermediate_file:
+			print(statement)
 
-				if len(statement) >= 2 and statement[1] and statement[1] == 'BASE':
-					set_base_register(statement)
+			# update base register per statement
+			if statement[1] == 'BASE':
+				set_base_register(statement)
 
-				generate_obj_code(statement)
-				if statement[0] == '.' and re.search(r'^[A-Fa-f0-9]+$', statement[1]):
-					pass
-					#PROGRAM_COUNTER = int(statement[1], 16)
-				elif len(statement) >= 2 and statement[1]:
-					PROGRAM_COUNTER = get_next_PC(statement)
-				
-		print(SYMBOL_TABLE)
+			object_code.append(generate_obj_code(statement, intermediate_file))
+
+		for code in object_code:
+			print(code)
+		print()
+		print()
 
 	except FileNotFoundError:
 		print(f"File not found: {path}")
 	except Exception as e:
-		print(f"An error occurred: {e}")
+		print(f"An error occurred during second pass: {e}")
 	pass
 
 def set_base_register(statement):
@@ -268,15 +547,18 @@ def set_base_register(statement):
 
 def parse_operand(operand):
 	try:
-		match = re.search(r'[A-Z0-9]+', operand)
-		return match.group()
+		if '*' in operand:
+			return operand
+		else:
+			match = re.search(r'[A-Z0-9]+', operand)
+			return match.group()
 	except Exception as e:
 		print(f"Error while parsing operand: {e}")
 
 def wrap_4bit_hex(negative_hex):
     return str(hex(0xffff + (negative_hex + 0x1)))
 
-def generate_obj_code(statement):
+def generate_obj_code(statement, intermediate_file):
 	nixbpe = [0, 0, 0, 0, 0, 0]
 	instruction = None
 	operand = None
@@ -287,14 +569,14 @@ def generate_obj_code(statement):
 		operand = statement[2]
 			
 		
-		if re.search(r'\+', instruction):
+		if instruction.startswith('+'):
 			# format 4 instruction
 			nixbpe[5] = 1
 
-		if re.search(r'#', operand):
+		if operand.startswith('#'):
 			# immediate addressing
 			nixbpe[1] = 1
-		elif re.search(r'@', operand):
+		elif operand.startswith('@'):
 			# indirect addressing
 			nixbpe[0] = 1
 		else:
@@ -340,19 +622,62 @@ def generate_obj_code(statement):
 	# all values in runtime should be in binary to simplify operations
 	c = 0
 	m = 0
+	prog_block_offset = 0
 	
 	op = None
-	if not isinstance(operand, list) and re.search(r'^\d+$', operand): # if operand is numeric
+	location_counter_operand = None
+	if not isinstance(operand, list):
+		location_counter_operand = re.findall(r'(?:(\*)([+-])(\d+))|(\*)', operand)
+
+	if not isinstance(operand, list) and re.search(r'^\d+$', operand) and not '=' in statement[2]: # if operand is numeric
+		print(f"numeric operand")
 		if int(operand) > 4095:
 			m = bin(int(operand, 10))[2:]
 		else:
 			c = bin(int(operand, 10))[2:]
-	else:
+	elif '=' in statement[2]:
+		print("literal here")
+		match = re.findall(r'=(\d+)', statement[2])
+		print(match[0])
+		for entry in LITERAL_TABLE:
+			if int(match[0]) == entry[2]:
+				print(entry)
+				prog_block_offset = LOCATION_COUNTERS[entry[3]][2]
+				print(f"prog_block_offset: {hex(prog_block_offset)}")
+				m = bin(int(entry[0], 16))[2:]
+	elif location_counter_operand:
+		# if there is * or *+-number in operand, this will pass
+		print("location counter operand")
+		print(location_counter_operand)
+		location_counter_operand = location_counter_operand[0]
+		if location_counter_operand[0] != '':
+			if location_counter_operand[1] == '-':
+				c = bin(int(statement[3], 16) - int(location_counter_operand[2]))[2:]
+			else:
+				c = bin(int(statement[3], 16) + int(location_counter_operand[2]))[2:]
+		else:
+			c = bin(int(statement[3], 16))[2:]
+	elif statement[2] != '':
 		# get address of operand
+		print(f"operand definitely memory address symbol")
+		
+
+		# check if there is a symbol in the correct control section
+		symbol = None
 		for entry in SYMBOL_TABLE:
-			if operand == entry[1]:
-				print(type(entry[0]), entry[0])
-				m = bin(int(entry[0][2:], 16))[2:].zfill(8)
+			if operand == entry[1] and entry[4] == statement[5]:
+				symbol = entry
+
+		if symbol == None:
+			# symbol in symbol table is outside of the current control section
+			print("symbol outside control section")
+			nixbpe[5] = 1
+			m = bin(0)[2:].zfill(12)
+		else:
+			print(type(symbol[0]), symbol[0])
+			prog_block_offset = LOCATION_COUNTERS[symbol[3]][2]
+			print(f"prog_block_offset: {hex(prog_block_offset)}")
+			m = bin(int(symbol[0][2:], 16))[2:].zfill(8)
 
 	# get obj code as a string of binary
 	try:
@@ -381,7 +706,9 @@ def generate_obj_code(statement):
 	# instruction is a directive
 	if form == 0:
 		if statement[1] == 'BYTE':
-			obj_code, code_length = get_byte_instruction_data(statement)
+			obj_code, code_length = get_literal_code(statement[2])
+		elif statement[0] == '*':
+			obj_code, code_length = get_literal_code(statement[1])
 
 	if form == 2:
 		try:
@@ -418,7 +745,6 @@ def generate_obj_code(statement):
 			if nixbpe[2] == 0 and nixbpe[4] == 0:
 				print("disp = ta")
 				if m:
-					print('hero')
 					disp = m.zfill(12)
 					print(disp)
 				elif c:
@@ -426,9 +752,13 @@ def generate_obj_code(statement):
 				else:
 					disp = "000000000000"
 
+
+
 			# if extended, then fill up the disp to make a 20-length address
 			if nixbpe[5] == 1:
 				print("extended")
+				if disp == None:
+					disp = "00000000000000000000"
 				disp = disp.zfill(20)
 
 			# now handle all relative addressing
@@ -436,10 +766,10 @@ def generate_obj_code(statement):
 			# pc-relative, calculate disp here
 			if nixbpe[4] == 1:
 				print("assuming pc-relative")
-				PC = get_next_PC(statement)
+				PC = get_next_address(statement)
 
-				disp = int(m, 2) - PC
-				print(f"disp: {disp}")
+				disp = (int(m, 2) + prog_block_offset) - PC
+				print(f"disp: {hex(disp)}")
 
 				if disp < -2048 or disp > 2047:
 					# pc-relative displacement value out of range, try base relative
@@ -458,7 +788,7 @@ def generate_obj_code(statement):
 			# if pc-relative fails, then base relative protocol will activate
 			if nixbpe[3] == 1:
 				print("using base relative")
-				print(f"REG_B: {REG_B}")
+				print(f"REG_B: {hex(REG_B)}")
 				# dont forget m is target address
 				disp = int(m, 2) - REG_B
 				print(f"disp: {disp}")
@@ -471,10 +801,13 @@ def generate_obj_code(statement):
 
 			# subtract index register value if applicable
 			if nixbpe[2] == 1:
-				print(f"REG_X: {REG_X}")
+				print(f"REG_X: {hex(REG_X)}")
 				disp = int(disp, 2) - REG_X
-				disp = bin(disp)[2:].zfill(16)
-				disp = disp[4:]
+				if nixbpe[5] == 1:
+					disp = bin(disp)[2:].zfill(20)
+				else:
+					disp = bin(disp)[2:].zfill(16)
+					disp = disp[4:]
 
 		except Exception as e:
 			print(f"error calculating object code: {e}")
@@ -496,12 +829,29 @@ def generate_obj_code(statement):
 	print()
 	return obj_code
 
+def print_intermediate_file(intermediate_file):
+	try:
+		for entry in intermediate_file:
+			try:
+				print(f'{entry[3]}\t {entry}')
+			except Exception as e:
+				print(f"you dumb idiot: {e}")
+	except Exception as e:
+		print(f"you have died: {e}")
 
 
 
 print()
 print()
+finished_file = do_macros()
+print()
+print()
 print()
 
-first_pass()
-second_pass()
+intermediate_file = first_pass(finished_file)
+
+print_intermediate_file(intermediate_file)
+
+print()
+print()
+second_pass(intermediate_file)
